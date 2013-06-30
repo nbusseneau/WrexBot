@@ -7,7 +7,6 @@ import socket
 import sys
 import datetime
 import logging
-from os.path import normpath, join, dirname
 
 # Some RFC constants
 RPL_WELCOME = '001'
@@ -18,7 +17,7 @@ ERR_NICKCOLLISION = '436'
 
 # Some settings
 DATE_FORMAT = '%Y-%m-%d %H:%M:%S'  # Datetime format for logs and stdout
-PLUGIN_DIR = normpath(join(dirname(__file__), 'plugins'))  # Plugins directory
+PLUGIN_DIR = 'plugins'  # Plugins directory
 
 
 def now(date=True, fmt=DATE_FORMAT):
@@ -58,6 +57,8 @@ class WrexBot(asynchat.async_chat):
         self.ignore_list = [self.nick]
         self.masters = []
         self.channels = channels
+        self.plugins_to_load = {}
+        self.plugins = []
 
     def set_channels(self, *channels):
         """Set list of default connected channels."""
@@ -65,6 +66,7 @@ class WrexBot(asynchat.async_chat):
 
     def set_ignore_list(self, *ignore_list):
         """Set list of ignored users."""
+        # We add the bot itself to avoid loops
         self.ignore_list = list(ignore_list).append(self.nick)
 
     def _ignore(self, ignore):
@@ -87,8 +89,21 @@ class WrexBot(asynchat.async_chat):
         """Remove master from the masters list."""
         self.masters.remove(master)
 
-    def set_plugins(self, *plugins):
-        """"""
+    def set_plugins(self, plugins):
+        """Set dict of plugins to load and load them."""
+        self.plugins_to_load = plugins
+        self.load_plugins()
+
+    def load_plugin(self, plugin_file, plugin_class):
+        _temp = __import__('{}.{}'.format(PLUGIN_DIR, plugin_file),
+                               fromlist=[plugin_class])
+        init = getattr(_temp, plugin_class)
+        self.plugins.append(init(self))
+
+    def load_plugins(self):
+        for plugin_file, plugin_class in self.plugins_to_load.items():
+            self.load_plugin(plugin_file, plugin_class)
+
 
     def collect_incoming_data(self, data):
         """Decode incoming data and encode it in utf-8."""
@@ -186,10 +201,9 @@ class WrexBot(asynchat.async_chat):
         elif ERR_NICKNAMEINUSE in command or ERR_NICKCOLLISION in command:
             self.print_msg(self.nick, sender, 'Nickname already in use')
 
-        else:
-            for plugin in PLUGINS:
-                if plugin.accept(command):
-                    plugin.dispatch(command, sender, msg, *params)
+        for plugin in self.plugins:
+            if plugin.accept(command):
+                plugin.dispatch(command, sender, msg, *params)
 
     def user_command(self, command, sender, *params):
         """Execute a user command.
@@ -203,9 +217,9 @@ class WrexBot(asynchat.async_chat):
         
         """
         # There are no user command by default
-        for plugin in PLUGINS:
-            if plugin.accept(command):
-                plugin.execute(command, sender, *params)
+        for plugin in self.plugins:
+            if getattr(self._plugins, plugin).accept(command):
+                getattr(self._plugins, plugin).execute(command, sender, *params)
 
     def master_command(self, command, sender, *params):
         """Execute a master command.
@@ -227,33 +241,59 @@ class WrexBot(asynchat.async_chat):
                 self.send_msg(params[0], params[1])
 
         elif 'join' in command:
-            for channel in params:
-                self.join(channel)
+            if len(params) < 1:
+                self.send_msg(sender, 'Usage: !join #channels #to #join')
+            else:
+                for channel in params:
+                    self.join(channel)
 
         elif 'part' in command:
-            for channel in params:
-                self.part(channel)
+            if len(params) < 1:
+                self.send_msg(sender, 'Usage: !part #channels #to #part')
+            else:
+                for channel in params:
+                    self.part(channel)
+
+        elif 'masters' in command:
+            self.send_msg(sender,
+                          'Masters list: {}'.format(' '.join(self.masters)))
 
         elif 'unmaster' in command:
-            for master in params:
-                self._unmaster(master)
+            if len(params) < 1:
+                self.send_msg(sender, 'Usage: !unmaster users to unmaster')
+            else:
+                for master in params:
+                    self._unmaster(master)
 
         elif 'master' in command:
-            for master in params:
-                self._master(master)
+            if len(params) < 1:
+                self.send_msg(sender, 'Usage: !master users to add as master')
+            else:
+                for master in params:
+                    self._master(master)
+
+        elif 'ignores' in command or 'ignore_list' in command:
+            self.send_msg(sender,
+                          'Ignored list: {}'.format(' '.join(self.ignore_list)))
 
         elif 'unignore' in command:
-            for ignore in params:
-                self._unignore(ignore)
+            if len(params) < 1:
+                self.send_msg(sender, 'Usage: !unignore users to unignore')
+            else:
+                for ignore in params:
+                    self._unignore(ignore)
 
         elif 'ignore' in command:
-            for ignore in params:
-                self._ignore(ignore)
+            if len(params) < 1:
+                self.send_msg(sender, 'Usage: !ignore users to ignore')
+            else:
+                for ignore in params:
+                    self._ignore(ignore)
 
         else:
-            for plugin in PLUGINS:
-                if plugin.accept(command):
-                    plugin.execute(command, sender, *params)
+            for plugin in self.plugins:
+                if getattr(self._plugins, plugin).accept(command):
+                    getattr(self._plugins, plugin).execute(command, sender, *params)
 
     def write(self, *args):
         """Process args and push them to the server."""
@@ -299,10 +339,11 @@ class WrexBot(asynchat.async_chat):
         """
         print "[{}] {} | {}: {}".format(now(), recipient, sender, msg)
 
-
 if __name__ == '__main__':
     logging.basicConfig(format='%(asctime)s %(message)s', datefmt=DATE_FORMAT, stream=sys.stdout)
     logging.getLogger().setLevel(logging.DEBUG)
     wrex_bot = WrexBot('WrexBot', '#test-bot')
-    wrex_bot.add_master('Skymirrh')
+    wrex_bot._master('Skymirrh')
+    plugins = {'shepard': 'Shepard'}
+    wrex_bot.set_plugins(plugins)
     wrex_bot.shepardify('irc.epiknet.org')

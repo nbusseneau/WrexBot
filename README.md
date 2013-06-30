@@ -23,7 +23,7 @@ The Shepard Machine
 from wrex_bot import WrexBot
 
 wrex_bot = WrexBot('BotName', '#channels', '#to', '#join')
-wrex_bot.shepard('irc.server.address')
+wrex_bot.shepardify('irc.server.address')
 ```
 And from now on whoever says "Wrex" or "Shepard" will never feel alone :)
 
