@@ -7,6 +7,7 @@ import socket
 import sys
 import datetime
 import logging
+import re
 
 # Some RFC constants
 RPL_WELCOME = '001'
@@ -25,7 +26,7 @@ def now(date=True, fmt=DATE_FORMAT):
 
     :keyword date: if Date should be returned as well (default=True)
     :type date: boolean
-    :keyword fmt: strftime datetime format
+    :keyword fmt: strftime datetime format (default=DATE_FORMAT)
     :type fmt: string
     :return: current time (and date, if Date is True)
     :rtype: string
@@ -40,101 +41,98 @@ def now(date=True, fmt=DATE_FORMAT):
 class WrexBot(asynchat.async_chat):
     """Simple Python IRC Bot written for fun."""
 
-    def __init__(self, nick, *channels):
+    def __init__(self,
+                 nick='WrexBot',
+                 channels=None,
+                 plugins_to_load=None,
+                 ignores=None,
+                 admins=None,
+                 custom_commands_prefix='!'):
         """Create an IRC WrexBot, ready for duty o/
 
-        :param nick: bot nickname
+        :param nick: bot nickname (default=WrexBot)
         :type nick: string
-        :param channels: default channels to join
-        :type channels: list of strings
-        :return: a WrexBot instance
+        :param channels: channels to join upon connection (default=[])
+        :type channels: list of string
+        :param plugins_to_load: plugins to load at startup
+                                (default=['Shepard', 'Basic'])
+        :type plugins_to_load: list of string
+        :param ignores: users to ignore (default=[self.nick])
+        :type ignores: list of string
+        :param admins: users with admin rights on the bot (default=[])
+        :type admins: list of string
+        :param custom_commands_prefix: prefix for users/admins custom commands
+                                       (default='!')
+        :type custom_commands_prefix: string
+        :return: a bot instance
         :rtype: WrexBot
 
         """
+        # Replace None placeholders with default values:
+        if channels is None:
+            channels = []
+        if plugins_to_load is None:
+            plugins_to_load = ['Shepard', 'Basic']
+        if ignores is None:
+            ignores = [nick]  # avoid loops
+        if admins is None:
+            admins = []
+
         asynchat.async_chat.__init__(self)
         self.set_terminator('\n')
         self.nick = nick
-        self.ignore_list = [self.nick]
-        self.masters = []
         self.channels = channels
-        self.plugins_to_load = {}
+        self.plugins_to_load = plugins_to_load
         self.plugins = []
+        for plugin_class in self.plugins_to_load:
+            self.load_plugin(plugin_class)
+        self.ignores = ignores
+        self.admins = admins
+        self.custom_commands_prefix = custom_commands_prefix
 
-    def set_channels(self, *channels):
-        """Set list of default connected channels."""
-        self.channels = channels
-
-    def set_ignore_list(self, *ignore_list):
-        """Set list of ignored users."""
-        # We add the bot itself to avoid loops
-        self.ignore_list = list(ignore_list).append(self.nick)
-
-    def _ignore(self, ignore):
-        """Add ignore to the ignore list."""
-        self.ignore_list.append(ignore)
-
-    def _unignore(self, ignore):
-        """Remove ignore from the ignore list."""
-        self.ignore_list.remove(ignore)
-
-    def set_masters(self, *masters):
-        """Set list of bot masters users."""
-        self.masters = list(masters)
-
-    def _master(self, master):
-        """Add master to the masters list."""
-        self.masters.append(master)
-
-    def _unmaster(self, master):
-        """Remove master from the masters list."""
-        self.masters.remove(master)
-
-    def set_plugins(self, plugins):
-        """Set dict of plugins to load and load them."""
-        self.plugins_to_load = plugins
-        self.load_plugins()
-
-    def load_plugin(self, plugin_file, plugin_class):
+    def load_plugin(self, plugin_class):
+        """Import plugin_class and append an instance to self.plugins"""
+        # Plugin filenames and classes must follow convention, see README
+        plugin_file = '_'.join(re.findall('[A-Z][^A-Z]*', plugin_class)).lower()
         _temp = __import__('{}.{}'.format(PLUGIN_DIR, plugin_file),
-                               fromlist=[plugin_class])
+                           fromlist=[plugin_class])
         init = getattr(_temp, plugin_class)
         self.plugins.append(init(self))
 
-    def load_plugins(self):
-        for plugin_file, plugin_class in self.plugins_to_load.items():
-            self.load_plugin(plugin_file, plugin_class)
+    def unload_plugin(self, plugin_class):
+        """Remove plugin_class from self.plugins"""
+        for plugin in self.plugins:
+            if plugin_class in str(plugin.__class__):
+                self.plugins.remove(plugin)
 
-
-    def collect_incoming_data(self, data):
-        """Decode incoming data and encode it in utf-8."""
-        encoding = iter(['utf-8', 'cp1252', 'iso-8859-1'])
-        ENCODING_FOUND_OR_NOT_SUPPORTED = False
-        while not ENCODING_FOUND_OR_NOT_SUPPORTED:
-            try:
-                data = data.decode(encoding.next())
-                ENCODING_FOUND_OR_NOT_SUPPORTED = True
-            except UnicodeDecodeError:
-                pass  # Try next encoding
-            except StopIteration:
-                logging.info('Data not decoded.')
-                ENCODING_FOUND_OR_NOT_SUPPORTED = True
-        self.incoming.append(data.encode('utf-8'))
-
-    def shepardify(self, host, port=6667):
-        """Connect to host:port and start operations.
-
-        :param host: IRC server address
-        :type host: string
-        :param port: connection port
-        :type port: integer
-
-        """
+    def shepardify(self, host, port=6667, encoding='utf-8'):
+        """Connect to host:port and start operations."""
+        self.encoding = encoding
         self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
         self.connect((host, port))
         asyncore.loop()
 
+    def collect_incoming_data(self, data):
+        """Decode incoming data using self.encoding and encode it in utf-8.
+
+        When decoding fails, raw data is processed (should work in most cases).
+        This is to allow the bot to connect to servers using for example latin-1
+        charset in their welcome message but utf-8 as regular charset otherwise.
+
+        """
+        try:
+            data = data.decode(self.encoding)
+            self.incoming.append(data.encode('utf-8'))
+        except UnicodeDecodeError:
+            logging.warning('Warning: data not decoded from {}'.format(self.encoding))
+            self.incoming.append(data)
+
     def found_terminator(self):
-        """Handle data reception."""
+        """Handle data reception.
+
+        Split data in command (with its additional parameters), sender and msg.
+
+        """
         # Take out \r if server follows RFC
         data = self._get_data().rstrip('\r')
         logging.debug(data)
@@ -155,151 +153,53 @@ class WrexBot(asynchat.async_chat):
         command = parts[0]
         params = parts[1:]  # can be an empty list
 
-        if sender not in self.ignore_list:
+        # Process data (unless we ignore sender)
+        if sender not in self.ignores:
             self.dispatch(command, sender, msg, *params)
 
     def dispatch(self, command, sender, msg, *params):
-        """Dispatch received data based on command.
-
-        :param command: received RFC command
-        :type command: string
-        :param sender: received data sender
-        :type sender: string
-        :param msg: received message
-        :type msg: string
-        :args params: RFC command parameters
-        :type params: list of strings
-
-        """
+        """Dispatch received data based on command."""
         logging.info('RECEIVED: {} {} {} {}'.format(command, sender,
                                                     ' '.join(params), msg))
 
         if 'PING' in command:
             self.write('PONG', msg)
-
         elif 'PRIVMSG' in command:
+            channel = params[0]
             self.print_msg(params[0], sender, msg)
-            if msg.startswith('!'):
+            # Custom commands handling
+            if msg.startswith(self.custom_commands_prefix):
                 parts = msg.split(' ')
-                command = parts[0][1:]  # we take out the '!'
-                params = parts[1:]  # can be an empty list
-                if sender in self.masters:
-                    self.master_command(command, sender, *params)
-                else:
-                    self.user_command(command, sender, *params)
-
-        elif RPL_WELCOME in command:
+                custom_command = parts[0].lstrip(self.custom_commands_prefix)
+                custom_params = parts[1:]  # can be an empty list
+                for plugin in self.plugins:
+                    if getattr(self._plugins, plugin).accept(custom_command):
+                        getattr(self._plugins, plugin).execute(custom_command, sender, channel, *custom_params)
+        elif RPL_WELCOME in command:  # connect to default channels upon welcome
             for channel in self.channels:
                 self.join(channel)
-
+        # Various RFC constants handlers
         elif ERR_CANNOTSENDTOCHAN in command:
             self.print_msg(self.nick, sender, 'Cannot send to chan')
-
         elif ERR_ERRONEUSNICKNAME in command:
             self.print_msg(self.nick, sender, 'Invalid nickname')
-
         elif ERR_NICKNAMEINUSE in command or ERR_NICKCOLLISION in command:
             self.print_msg(self.nick, sender, 'Nickname already in use')
 
+        # Plugin handlers
         for plugin in self.plugins:
             if plugin.accept(command):
+                print plugin
                 plugin.dispatch(command, sender, msg, *params)
 
-    def user_command(self, command, sender, *params):
-        """Execute a user command.
-        
-        :param command: user command
-        :type command: string
-        :param sender: sender
-        :type sender: string
-        :args params: command parameters
-        :type params: list of strings
-        
-        """
-        # There are no user command by default
-        for plugin in self.plugins:
-            if getattr(self._plugins, plugin).accept(command):
-                getattr(self._plugins, plugin).execute(command, sender, *params)
-
-    def master_command(self, command, sender, *params):
-        """Execute a master command.
-        
-        :param command: master command
-        :type command: string
-        :param sender: sender
-        :type sender: string
-        :args params: command parameters
-        :type params: list of strings
-        
-        """
-        command = command.lower()
-
-        if 'say' in command:
-            if len(params) != 2:
-                self.send_msg(sender, 'Usage: !say user_or_channel message')
-            else:
-                self.send_msg(params[0], params[1])
-
-        elif 'join' in command:
-            if len(params) < 1:
-                self.send_msg(sender, 'Usage: !join #channels #to #join')
-            else:
-                for channel in params:
-                    self.join(channel)
-
-        elif 'part' in command:
-            if len(params) < 1:
-                self.send_msg(sender, 'Usage: !part #channels #to #part')
-            else:
-                for channel in params:
-                    self.part(channel)
-
-        elif 'masters' in command:
-            self.send_msg(sender,
-                          'Masters list: {}'.format(' '.join(self.masters)))
-
-        elif 'unmaster' in command:
-            if len(params) < 1:
-                self.send_msg(sender, 'Usage: !unmaster users to unmaster')
-            else:
-                for master in params:
-                    self._unmaster(master)
-
-        elif 'master' in command:
-            if len(params) < 1:
-                self.send_msg(sender, 'Usage: !master users to add as master')
-            else:
-                for master in params:
-                    self._master(master)
-
-        elif 'ignores' in command or 'ignore_list' in command:
-            self.send_msg(sender,
-                          'Ignored list: {}'.format(' '.join(self.ignore_list)))
-
-        elif 'unignore' in command:
-            if len(params) < 1:
-                self.send_msg(sender, 'Usage: !unignore users to unignore')
-            else:
-                for ignore in params:
-                    self._unignore(ignore)
-
-        elif 'ignore' in command:
-            if len(params) < 1:
-                self.send_msg(sender, 'Usage: !ignore users to ignore')
-            else:
-                for ignore in params:
-                    self._ignore(ignore)
-
-        else:
-            for plugin in self.plugins:
-                if getattr(self._plugins, plugin).accept(command):
-                    getattr(self._plugins, plugin).execute(command, sender, *params)
-
     def write(self, *args):
-        """Process args and push them to the server."""
+        """Try to encode message and push it to the server."""
         msg = ' '.join(args)
         logging.info('SENT: {}'.format(msg))
-        self.push(msg + '\r\n')
+        try:
+            self.push(msg.encode(self.encoding) + '\r\n')
+        except UnicodeDecodeError:
+            self.push(msg + '\r\n')
 
     def handle_connect(self):
         """RFC connection protocol."""
@@ -314,36 +214,19 @@ class WrexBot(asynchat.async_chat):
         """RFC PART message."""
         self.write('PART', channel)
 
-    def send_msg(self, recipient, msg):
-        """RFC PRIVMSG message.
-
-        :param recipient: a channel or a user
-        :type recipient: string
-        :param msg: the message
-        :type msg: string
-        
-        """
+    def privmsg(self, recipient, msg):
+        """RFC PRIVMSG message."""
         self.write('PRIVMSG', recipient, ':' + msg)
         self.print_msg(recipient, self.nick, msg)
 
     def print_msg(self, recipient, sender, msg):
-        """Format and print a received message.
-        
-        :param recipient: message recipient (typically WrexBot or a channel)
-        :type recipient: string
-        :param sender: message sender
-        :type sender: string
-        :param msg: message
-        :type msg: string
-        
-        """
+        """Format and print a received message."""
         print "[{}] {} | {}: {}".format(now(), recipient, sender, msg)
+
 
 if __name__ == '__main__':
     logging.basicConfig(format='%(asctime)s %(message)s', datefmt=DATE_FORMAT, stream=sys.stdout)
     logging.getLogger().setLevel(logging.DEBUG)
-    wrex_bot = WrexBot('WrexBot', '#test-bot')
-    wrex_bot._master('Skymirrh')
-    plugins = {'shepard': 'Shepard'}
-    wrex_bot.set_plugins(plugins)
+    wrex_bot = WrexBot('WrexBot', channels=['#test-bot'], admins=['Skymirrh'])
+    wrex_bot.load_plugin('WordTriggers')
     wrex_bot.shepardify('irc.epiknet.org')

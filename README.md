@@ -30,4 +30,4 @@ And from now on whoever says "Wrex" or "Shepard" will never feel alone :)
 Plugins
 -------
 
-TODO
+Plugins naming convention

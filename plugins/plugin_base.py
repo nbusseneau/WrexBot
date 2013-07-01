@@ -8,11 +8,13 @@ class PluginBase(object):
         """Create a PluginBase associated to bot wrex_bot"""
         self.bot = wrex_bot
         self.commands = {}
-        self.custom_commands = {}
+        self.user_commands = {}
+        self.admin_commands = {}
 
     def accept(self, command):
         """Return true if command is to be processed by the plugin"""
-        if command in self.commands or command in self.custom_commands:
+        if (command in self.commands or command in self.user_commands or
+                command in self.admin_commands):
             return True
         else:
             return False
@@ -21,6 +23,9 @@ class PluginBase(object):
         """Dispatch according to command and pass the other parameters"""
         self.commands[command](sender, msg, *params)
 
-    def execute(self, command, sender, *params):
+    def execute(self, command, sender, channel, *params):
         """Execute custom command by passing the other parameters"""
-        self.custom_commands[command](sender, *params)
+        if sender in self.bot.masters and command in self.admin_commands:
+            self.admin_commands[command](sender, channel, *params)
+        else:
+            self.user_commands[command](sender, channel, *params)
