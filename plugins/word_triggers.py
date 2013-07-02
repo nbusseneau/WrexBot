@@ -3,6 +3,7 @@
 
 import re
 from plugin_base import PluginBase
+import hodor
 
 
 class WordTriggers(PluginBase):
@@ -13,21 +14,18 @@ class WordTriggers(PluginBase):
 
     def privmsg(self, sender, msg, *params):
         channel = params[0]
-        regex = re.search(r'(ni)( .*?|)([,!?.]+)?$', msg, re.I)
+        regex = re.search(r'(Ni)(?!\w).*?([\W1_]+)?$', msg, re.I)
         if regex:
-            answer = 'EKKE EKKE EKKE EKKE PTANGYA ZIIINNGGGGGGG NI'
-            term = regex.groups()[2]
-            if term is not '' and term is not None:
+            answer = 'Ekke ekke ekke ekke ptangya ziiinnggggggg ni'
+            ni, term = regex.groups()
+            if ni.isupper():
+                answer = answer.upper()
+            if term is not None:
                 answer += term
             else:
                 answer += '!'
             self.bot.privmsg(channel, answer)
 
-        if "/fliptables" in msg:
-            self.bot.privmsg(channel, "┻━┻ ︵ヽ(`Д´)ﾉ︵ ┻━┻")
-
-        elif "/fliptable" in msg:
-            self.bot.privmsg(channel, "(╯°□°)╯︵ ┻━┻")
-
-        elif "/angryfliptable" in msg:
-            self.bot.privmsg(channel, "(ノಠ益ಠ)ノ彡┻━┻")
+        regex = re.search(r'(Hodor)(?!\w).*?([\W1]+)?$', msg, re.I)
+        if regex:
+            self.bot.privmsg(channel, hodor.hodor())

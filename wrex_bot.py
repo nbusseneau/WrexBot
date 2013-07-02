@@ -40,7 +40,6 @@ def now(date=True, fmt=DATE_FORMAT):
 
 class WrexBot(asynchat.async_chat):
     """Simple Python IRC Bot written for fun."""
-
     def __init__(self,
                  nick='WrexBot',
                  channels=None,
@@ -123,7 +122,7 @@ class WrexBot(asynchat.async_chat):
         try:
             data = data.decode(self.encoding)
             self.incoming.append(data.encode('utf-8'))
-        except UnicodeDecodeError:
+        except (UnicodeDecodeError, UnicodeEncodeError):
             logging.warning('Warning: data not decoded from {}'.format(self.encoding))
             self.incoming.append(data)
 
@@ -165,16 +164,16 @@ class WrexBot(asynchat.async_chat):
         if 'PING' in command:
             self.write('PONG', msg)
         elif 'PRIVMSG' in command:
-            channel = params[0]
-            self.print_msg(params[0], sender, msg)
+            recipient = params[0]
+            self.print_msg(recipient, sender, msg)
             # Custom commands handling
             if msg.startswith(self.custom_commands_prefix):
                 parts = msg.split(' ')
                 custom_command = parts[0].lstrip(self.custom_commands_prefix)
                 custom_params = parts[1:]  # can be an empty list
                 for plugin in self.plugins:
-                    if getattr(self._plugins, plugin).accept(custom_command):
-                        getattr(self._plugins, plugin).execute(custom_command, sender, channel, *custom_params)
+                    if plugin.accept(custom_command):
+                        plugin.execute(custom_command, sender, recipient, *custom_params)
         elif RPL_WELCOME in command:  # connect to default channels upon welcome
             for channel in self.channels:
                 self.join(channel)
@@ -189,7 +188,6 @@ class WrexBot(asynchat.async_chat):
         # Plugin handlers
         for plugin in self.plugins:
             if plugin.accept(command):
-                print plugin
                 plugin.dispatch(command, sender, msg, *params)
 
     def write(self, *args):
@@ -198,7 +196,7 @@ class WrexBot(asynchat.async_chat):
         logging.info('SENT: {}'.format(msg))
         try:
             self.push(msg.encode(self.encoding) + '\r\n')
-        except UnicodeDecodeError:
+        except (UnicodeDecodeError, UnicodeEncodeError):
             self.push(msg + '\r\n')
 
     def handle_connect(self):

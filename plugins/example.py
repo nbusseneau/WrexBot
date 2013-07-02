@@ -15,14 +15,15 @@ class Example(PluginBase):
     # Note that in the handlers, you must have all parameters to be consistent
     # with the PluginBase switches, even if you don't use them all.
     # Make calls to self.bot functions when needed.
+    # Recipient can be a user or a channel.
     def rfc_command_handler(self, sender, msg, *params):
         # Process command using sender, msg and params
         self.bot.privmsg(sender, 'RFC_command has been processed.')
 
-    def user_command_handler(self, sender, *params):
+    def user_command_handler(self, sender, recipient, *params):
         # Process command using sender and params
         self.bot.privmsg(sender, 'user_command has been processed.')
 
-    def admin_command_handler(self, sender, *params):
+    def admin_command_handler(self, sender, recipient, *params):
         # Process command using sender and params
         self.bot.privmsg(sender, 'admin_command has been processed.')

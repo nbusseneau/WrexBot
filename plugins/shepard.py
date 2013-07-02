@@ -12,14 +12,14 @@ class Shepard(PluginBase):
         self.commands = {'PRIVMSG': self.privmsg}
 
     def privmsg(self, sender, msg, *params):
-        regex = re.search(r'(Wrex|Shepard)(.*?|)([,!?.]+)?$', msg, re.I)
+        regex = re.search(r'(Wrex|Shepard)(?!\w).*?([\W1_]+)?$', msg, re.I)
         if regex:
-            shepwrex, _,  term = regex.groups()
-            if 'Wrex' in shepwrex:
-                shepwrex = 'Shepard'
+            shepwrex, term = regex.groups()
+            if re.match(r'Wrex', shepwrex, re.I):
+                shepwrex = 'Shepard'.upper() if shepwrex.isupper() else 'Shepard'
             else:
-                shepwrex = 'Wrex'
-            if term is not '':
+                shepwrex = 'Wrex'.upper() if shepwrex.isupper() else 'Wrex'
+            if term is not None:
                 answer = shepwrex + term
             else:
                 answer = shepwrex + '.'

@@ -23,9 +23,9 @@ class PluginBase(object):
         """Dispatch according to command and pass the other parameters"""
         self.commands[command](sender, msg, *params)
 
-    def execute(self, command, sender, channel, *params):
+    def execute(self, command, sender, recipient, *params):
         """Execute custom command by passing the other parameters"""
-        if sender in self.bot.masters and command in self.admin_commands:
-            self.admin_commands[command](sender, channel, *params)
+        if sender in self.bot.admins and command in self.admin_commands:
+            self.admin_commands[command](sender, recipient, *params)
         else:
-            self.user_commands[command](sender, channel, *params)
+            self.user_commands[command](sender, recipient, *params)
