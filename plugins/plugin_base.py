@@ -19,13 +19,11 @@ class PluginBase(object):
         else:
             return False
 
-    def dispatch(self, command, sender, msg, *params):
+    def dispatch(self, command, sender, msg, *params, custom=False, admin=False):
         """Dispatch according to command and pass the other parameters"""
-        self.commands[command](sender, msg, *params)
-
-    def execute(self, command, sender, recipient, *params):
-        """Execute custom command by passing the other parameters"""
-        if sender in self.bot.admins and command in self.admin_commands:
-            self.admin_commands[command](sender, recipient, *params)
+        if not custom:
+            self.commands[command](sender, msg, *params)
+        elif custom and admin:
+            self.admin_commands[command](sender, msg, *params)
         else:
-            self.user_commands[command](sender, recipient, *params)
+            self.user_commands[command](sender, msg, *params)

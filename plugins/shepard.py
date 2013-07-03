@@ -12,7 +12,10 @@ class Shepard(PluginBase):
         self.commands = {'PRIVMSG': self.privmsg}
 
     def privmsg(self, sender, msg, *params):
-        regex = re.search(r'(Wrex|Shepard)(?!\w).*?([\W1_]+)?$', msg, re.I)
+        channel = params[0]
+        if channel == self.bot.nick:
+            channel = sender
+        regex = re.search(r'(?<!\w)(Wrex|Shepard)(?!\w).*?([\W1_]+)?$', msg, re.I+re.U)
         if regex:
             shepwrex, term = regex.groups()
             if re.match(r'Wrex', shepwrex, re.I):
@@ -23,4 +26,4 @@ class Shepard(PluginBase):
                 answer = shepwrex + term
             else:
                 answer = shepwrex + '.'
-            self.bot.privmsg(params[0], answer)
+            self.bot.privmsg(channel, answer)

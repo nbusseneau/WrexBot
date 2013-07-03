@@ -14,7 +14,9 @@ class WordTriggers(PluginBase):
 
     def privmsg(self, sender, msg, *params):
         channel = params[0]
-        regex = re.search(r'(Ni)(?!\w).*?([\W1_]+)?$', msg, re.I)
+        if channel == self.bot.nick:
+            channel = sender
+        regex = re.search(r'(?<!\w)(Ni)(?!\w).*?([\W1_]+)?$', msg, re.I+re.U)
         if regex:
             answer = 'Ekke ekke ekke ekke ptangya ziiinnggggggg ni'
             ni, term = regex.groups()
@@ -26,6 +28,6 @@ class WordTriggers(PluginBase):
                 answer += '!'
             self.bot.privmsg(channel, answer)
 
-        regex = re.search(r'(Hodor)(?!\w).*?([\W1]+)?$', msg, re.I)
+        regex = re.search(r'(?<!\w)(Hodor(?:(?:at)?ing|e(?:u)?r)?)(?!\w).*?([\W1]+)?$', msg, re.I+re.U)
         if regex:
             self.bot.privmsg(channel, hodor.hodor())

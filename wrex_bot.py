@@ -173,7 +173,9 @@ class WrexBot(asynchat.async_chat):
                 custom_params = parts[1:]  # can be an empty list
                 for plugin in self.plugins:
                     if plugin.accept(custom_command):
-                        plugin.execute(custom_command, sender, recipient, *custom_params)
+                        plugin.dispatch(custom_command, sender, recipient,
+                                        *custom_params, custom=True,
+                                        admin=sender in self.admins)
         elif RPL_WELCOME in command:  # connect to default channels upon welcome
             for channel in self.channels:
                 self.join(channel)
